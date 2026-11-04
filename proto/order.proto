@@ -1,0 +1,28 @@
+syntax = "proto3";
+package order;
+
+// Bounded Context 3: Order Management  |  Service: order-service  |  DB: PostgreSQL (Order, OrderDetail, OutboxEvent)
+// uid và role của người gọi được truyền qua gRPC metadata (x-user-id, x-user-role), không đặt trong message.
+service OrderService {
+  rpc CreateOrder (CreateOrderRequest) returns (Order);              // API-ORD-01 | luồng chính 10 bước | TC-ORD-04, TC-ORD-05
+  rpc ListOrders  (ListOrdersRequest)  returns (ListOrdersResponse); // API-ORD-02
+  rpc GetOrder    (GetOrderRequest)    returns (Order);              // API-ORD-03
+}
+
+message RequestedItem { int32 pid = 1; int32 qty = 2; }
+message OrderItem     { int32 pid = 1; int32 qty = 2; double unit_price = 3; }
+
+message CreateOrderRequest { int32 uid = 1; repeated RequestedItem items = 2; }
+
+message Order {
+  int32 oid = 1;
+  int32 uid = 2;
+  double discount = 3;        // số tiền giảm (ERD: DECIMAL(10,2))
+  double total_amount = 4;    // dẫn xuất từ OrderDetail (BPM trả total_amount)
+  repeated OrderItem items = 5;
+  string shipment_status = 6; // "PENDING": Shipment được tạo bất đồng bộ qua Kafka
+}
+
+message ListOrdersRequest  { int32 uid = 1; }   // uid = 0: tất cả (chỉ ADMIN)
+message ListOrdersResponse { repeated Order items = 1; }
+message GetOrderRequest    { int32 oid = 1; }

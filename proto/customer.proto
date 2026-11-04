@@ -1,0 +1,22 @@
+syntax = "proto3";
+package customer;
+
+// Bounded Context 2: Customer & Membership  |  Service: customer-service  |  DB: PostgreSQL (Customer, Membership)
+// Danh tính người gọi (x-user-id, x-user-role) được API Gateway gắn vào gRPC metadata.
+service CustomerService {
+  rpc CreateCustomer (CreateCustomerRequest) returns (Customer);    // Gateway gọi sau khi đăng ký/đăng nhập (idempotent)
+  rpc GetCustomer    (GetCustomerRequest)    returns (Customer);    // API-CUS-01 | TC-CUS-01, 02, 05
+  rpc UpdateCustomer (UpdateCustomerRequest) returns (Customer);    // API-CUS-02 | TC-CUS-03
+  rpc GetMembership  (GetMembershipRequest)  returns (Membership);  // TC-CUS-04 | BPM bước 4 (Order Service lấy score)
+}
+
+message Customer { int32 uid = 1; string fullname = 2; int32 mid = 3; }
+
+message CreateCustomerRequest { int32 uid = 1; string fullname = 2; }
+message GetCustomerRequest    { int32 uid = 1; }
+// update_mask: danh sách field cần sửa ("fullname", "mid"); Gateway điền theo các field có trong JSON body.
+// Chỉ ADMIN được đổi mid.
+message UpdateCustomerRequest { int32 uid = 1; string fullname = 2; int32 mid = 3; repeated string update_mask = 4; }
+
+message GetMembershipRequest { int32 uid = 1; }
+message Membership           { int32 mid = 1; string mname = 2; int32 score = 3; }

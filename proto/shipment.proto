@@ -1,0 +1,17 @@
+syntax = "proto3";
+package shipment;
+
+// Bounded Context 5: Shipment  |  Service: shipment-service  |  DB: MongoDB (Shipment)
+// Shipment được TẠO bằng cách consume Kafka topic "order-created" (không có RPC tạo).
+service ShipmentService {
+  rpc GetShipment          (GetShipmentRequest)          returns (Shipment);  // API-SHP-01 | UC12
+  rpc UpdateShipmentStatus (UpdateShipmentStatusRequest) returns (Shipment);  // API-SHP-02 | TC-SHP-03
+}
+
+// uid được sao chép từ event OrderCreated để kiểm tra quyền xem (UC12: Forbidden → 403).
+// Đây là điểm bổ sung so với ERD (Shipment chỉ có shipid, oid, status).
+message Shipment { int32 shipid = 1; int32 oid = 2; string status = 3; int32 uid = 4; }
+
+message GetShipmentRequest          { int32 shipid = 1; }
+// status hợp lệ: PENDING, SHIPPING, DELIVERED, CANCELLED
+message UpdateShipmentStatusRequest { int32 shipid = 1; string status = 2; }

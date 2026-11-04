@@ -1,0 +1,33 @@
+syntax = "proto3";
+package product;
+
+// Bounded Context 4: Product Catalog  |  Service: product-service  |  DB: MongoDB (Product)
+service ProductService {
+  // --- CRUD cho Client (qua API Gateway) ---
+  rpc ListProducts  (ListProductsRequest)  returns (ListProductsResponse);  // API-PRO-01 | TC-PRO-01
+  rpc GetProduct    (GetProductRequest)    returns (Product);               // API-PRO-02
+  rpc CreateProduct (CreateProductRequest) returns (Product);               // API-PRO-03 (ADMIN)
+  rpc UpdateProduct (UpdateProductRequest) returns (Product);               // API-PRO-04 (ADMIN)
+  rpc DeleteProduct (DeleteProductRequest) returns (DeleteProductResponse); // API-PRO-05 (ADMIN)
+
+  // --- Dành riêng cho Order Service ---
+  rpc CheckProducts (StockItemsRequest) returns (CheckProductsResponse);    // BPM bước 6: lấy giá + kiểm tra tồn kho
+  rpc DecreaseStock (StockItemsRequest) returns (StockResponse);            // BPM bước 7: trừ kho
+  rpc RestoreStock  (StockItemsRequest) returns (StockResponse);            // bù trừ khi lưu Order thất bại (UC06)
+}
+
+message Product { int32 pid = 1; string pname = 2; double price = 3; int32 quantity = 4; }
+
+message ListProductsRequest  {}
+message ListProductsResponse { repeated Product items = 1; }
+message GetProductRequest    { int32 pid = 1; }
+message CreateProductRequest { string pname = 1; double price = 2; int32 quantity = 3; }
+// update_mask: danh sách field cần sửa ("pname", "price", "quantity"); Gateway điền theo các field có trong JSON body
+message UpdateProductRequest { int32 pid = 1; string pname = 2; double price = 3; int32 quantity = 4; repeated string update_mask = 5; }
+message DeleteProductRequest { int32 pid = 1; }
+message DeleteProductResponse { int32 pid = 1; }
+
+message StockItem          { int32 pid = 1; int32 qty = 2; }
+message StockItemsRequest  { repeated StockItem items = 1; }
+message CheckProductsResponse { repeated Product items = 1; }
+message StockResponse      { bool success = 1; }

@@ -1,0 +1,253 @@
+# =====================================================================
+# E-commerce MVP - Docker Compose
+# BƯỚC 1: HẠ TẦNG (5 database + Redis + Kafka)
+# Database-per-Service: mỗi service sở hữu 1 DB riêng, user/password riêng.
+# Các service ứng dụng và API Gateway sẽ được thêm ở Bước 2 -> 9.
+# =====================================================================
+name: ecommerce
+
+services:
+  # ---------- 1. Identity & Access  ->  Auth Service (PostgreSQL) ----------
+  auth-db:
+    image: postgres:16-alpine
+    container_name: auth-db
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: ${AUTH_DB_USER}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1: chỉ báo healthy khi Postgres thật đã chạy (không phải server tạm lúc khởi tạo)
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # ---------- 2. Customer & Membership  ->  Customer Service (PostgreSQL) ----------
+  customer-db:
+    image: postgres:16-alpine
+    container_name: customer-db
+    environment:
+      POSTGRES_DB: customer_db
+      POSTGRES_USER: ${CUSTOMER_DB_USER}
+      POSTGRES_PASSWORD: ${CUSTOMER_DB_PASSWORD}
+    volumes:
+      - customer_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # ---------- 3. Order Management  ->  Order Service (PostgreSQL) ----------
+  order-db:
+    image: postgres:16-alpine
+    container_name: order-db
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: ${ORDER_DB_USER}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # ---------- 4. Product Catalog  ->  Product Service (MongoDB) ----------
+  product-db:
+    image: mongo:7
+    container_name: product-db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${PRODUCT_DB_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${PRODUCT_DB_PASSWORD}
+      MONGO_INITDB_DATABASE: product_db
+    volumes:
+      - product_db_data:/data/db
+    healthcheck:
+      # ping có đăng nhập: chỉ thành công khi user root đã được tạo xong
+      test:
+        - CMD-SHELL
+        - mongosh --quiet -u "$${MONGO_INITDB_ROOT_USERNAME}" -p "$${MONGO_INITDB_ROOT_PASSWORD}" --authenticationDatabase admin --eval "db.adminCommand('ping').ok" | grep -q 1
+      interval: 3s
+      timeout: 10s
+      retries: 20
+      start_period: 5s
+
+  # ---------- 5. Shipment  ->  Shipment Service (MongoDB) ----------
+  shipment-db:
+    image: mongo:7
+    container_name: shipment-db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${SHIPMENT_DB_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${SHIPMENT_DB_PASSWORD}
+      MONGO_INITDB_DATABASE: shipment_db
+    volumes:
+      - shipment_db_data:/data/db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mongosh --quiet -u "$${MONGO_INITDB_ROOT_USERNAME}" -p "$${MONGO_INITDB_ROOT_PASSWORD}" --authenticationDatabase admin --eval "db.adminCommand('ping').ok" | grep -q 1
+      interval: 3s
+      timeout: 10s
+      retries: 20
+      start_period: 5s
+
+  # ---------- API Gateway DB: Redis (cache + rate limiting) ----------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: [ "redis-server", "--requirepass", "${REDIS_PASSWORD}" ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --no-auth-warning -a "$${REDIS_PASSWORD}" ping | grep -q PONG
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # ---------- Message Broker: Kafka (KRaft, không cần Zookeeper) ----------
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false" # topic được tạo tường minh bởi kafka-init
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      # KAFKA_HEAP_OPTS nhỏ: lệnh kiểm tra là 1 tiến trình Java riêng, giảm heap giúp nó chạy nhanh hơn
+      test: [ "CMD-SHELL", "KAFKA_HEAP_OPTS='-Xmx64M -Xms32M' /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list" ]
+      interval: 5s
+      timeout: 8s
+      retries: 20
+      start_period: 10s
+
+  # ---------- Job chạy 1 lần: tạo topic rồi thoát (Exited 0 là bình thường) ----------
+  kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic order-created --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic order-created-dlq --partitions 1 --replication-factor 1 &&
+        echo "Kafka topics ready"
+  # ---------- Sẽ thêm ở các bước sau ----------
+  # auth-service      (Bước 2)   customer-service (Bước 3)   product-service (Bước 4)
+  # order-service     (Bước 5)   shipment-service (Bước 6)   api-gateway     (Bước 7)
+  # Mỗi service: depends_on DB của chính nó (service_healthy) và kafka-init (service_completed_successfully).
+
+  # ---------- Auth Service (Bounded Context 1) ----------
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: auth-service
+    environment:
+      DATABASE_URL: postgres://${AUTH_DB_USER}:${AUTH_DB_PASSWORD}@auth-db:5432/auth_db
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      GRPC_PORT: 50051
+      HEALTH_PORT: 8080
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1" ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    # ---------- Product Service (Bounded Context 4) ----------
+  product-service:
+    build:
+      context: .
+      dockerfile: services/product-service/Dockerfile
+    container_name: product-service
+    environment:
+      MONGO_URL: mongodb://${PRODUCT_DB_USER}:${PRODUCT_DB_PASSWORD}@product-db:27017/product_db?authSource=admin
+      GRPC_PORT: 50053
+      HEALTH_PORT: 8080
+    depends_on:
+      product-db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1" ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+  # ---------- Customer Service (Bounded Context 2) ----------
+  customer-service:
+    build:
+      context: .
+      dockerfile: services/customer-service/Dockerfile
+    container_name: customer-service
+    environment:
+      DATABASE_URL: postgres://${CUSTOMER_DB_USER}:${CUSTOMER_DB_PASSWORD}@customer-db:5432/customer_db
+      GRPC_PORT: 50052
+      HEALTH_PORT: 8080
+    depends_on:
+      customer-db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1" ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    # ---------- API Gateway ----------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: api-gateway
+    environment:
+      PORT: 8080
+      AUTH_GRPC_URL: auth-service:50051
+      CUSTOMER_GRPC_URL: customer-service:50052
+      PRODUCT_GRPC_URL: product-service:50053
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      customer-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health || exit 1" ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  auth_db_data:
+  customer_db_data:
+  order_db_data:
+  product_db_data:
+  shipment_db_data:
