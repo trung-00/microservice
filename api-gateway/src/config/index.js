@@ -4,5 +4,6 @@ module.exports = {
     authUrl: process.env.AUTH_GRPC_URL || 'auth-service:50051',
     customerUrl: process.env.CUSTOMER_GRPC_URL || 'customer-service:50052',
     productUrl: process.env.PRODUCT_GRPC_URL || 'product-service:50053',
+    orderUrl: process.env.ORDER_GRPC_URL || 'order-service:50054',
     grpcTimeoutMs: Number(process.env.GRPC_TIMEOUT_MS || 3000),
 };

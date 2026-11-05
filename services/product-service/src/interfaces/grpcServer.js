@@ -6,6 +6,7 @@ const { DomainError } = require('../domain/errors');
 const STATUS = {
     INVALID_ARGUMENT: grpc.status.INVALID_ARGUMENT,
     NOT_FOUND: grpc.status.NOT_FOUND,
+    FAILED_PRECONDITION: grpc.status.FAILED_PRECONDITION,
 };
 
 function handle(fn) {
@@ -22,10 +23,6 @@ function handle(fn) {
     };
 }
 
-// 3 hàm kho dành cho Order Service sẽ được làm ở Bước 5
-const notYet = (call, callback) =>
-    callback({ code: grpc.status.UNIMPLEMENTED, message: 'Not implemented yet (Step 5)' });
-
 function startGrpcServer(productService, port) {
     const definition = protoLoader.loadSync(path.join(process.env.PROTO_DIR, 'product.proto'), {
         keepCase: false, // update_mask trong .proto -> updateMask trong JS
@@ -40,9 +37,15 @@ function startGrpcServer(productService, port) {
         CreateProduct: handle((req) => productService.create(req)),
         UpdateProduct: handle((req) => productService.update(req)),
         DeleteProduct: handle((req) => productService.remove(req.pid)),
-        CheckProducts: notYet,
-        DecreaseStock: notYet,
-        RestoreStock: notYet,
+        CheckProducts: handle(async (req) => ({ items: await productService.check(req.items) })),
+        DecreaseStock: handle(async (req) => {
+            await productService.decrease(req.items);
+            return { success: true };
+        }),
+        RestoreStock: handle(async (req) => {
+            await productService.restore(req.items);
+            return { success: true };
+        }),
     });
 
     return new Promise((resolve, reject) => {

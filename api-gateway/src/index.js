@@ -1,12 +1,13 @@
 const express = require('express');
 const config = require('./config');
-const { authClient, customerClient, productClient, call } = require('./grpc-clients');
+const { authClient, customerClient, productClient, orderClient, call } = require('./grpc-clients');
 const { authenticate, authorize } = require('./middlewares/auth');
 const { errorHandler } = require('./middlewares/errorHandler');
 const healthRoutes = require('./routes/health');
 const authRoutes = require('./routes/auth');
 const customerRoutes = require('./routes/customers');
 const productRoutes = require('./routes/products');
+const orderRoutes = require('./routes/orders');
 
 const app = express();
 app.disable('x-powered-by');
@@ -20,6 +21,7 @@ app.use('/api/health', healthRoutes());
 app.use('/api/auth', authRoutes({ call, authClient, customerClient }));
 app.use('/api/customers', customerRoutes({ call, customerClient, authenticate: requireLogin }));
 app.use('/api/products', productRoutes({ call, productClient, authenticate: requireLogin, authorize }));
+app.use('/api/orders', orderRoutes({ call, orderClient, authenticate: requireLogin }));
 
 app.use((req, res) => res.status(404).json({ message: 'Not found' }));
 app.use(errorHandler);

@@ -6,6 +6,10 @@ const checkQuantity = (v) => (Number.isInteger(v) && v >= 0 ? null : 'quantity m
 
 const RULES = { pname: checkName, price: checkPrice, quantity: checkQuantity };
 
+const INT32_MAX = 2147483647;
+const MAX_STOCK_ITEMS = 50;
+const isPositiveInt = (v) => Number.isInteger(v) && v >= 1 && v <= INT32_MAX;
+
 function assertValid(problems) {
     const list = problems.filter(Boolean);
     if (list.length) throw new DomainError('INVALID_ARGUMENT', list.join('; '));
@@ -30,4 +34,24 @@ function buildChanges(input, mask) {
     return changes;
 }
 
-module.exports = { validateNewProduct, buildChanges };
+// Kiểm tra yêu cầu kho của Order Service và gộp các dòng trùng pid.
+function normalizeStockItems(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+        throw new DomainError('INVALID_ARGUMENT', 'items must not be empty');
+    }
+    if (items.length > MAX_STOCK_ITEMS) {
+        throw new DomainError('INVALID_ARGUMENT', `at most ${MAX_STOCK_ITEMS} items per request`);
+    }
+    const merged = new Map();
+    for (const it of items) {
+        if (!it || !isPositiveInt(it.pid) || !isPositiveInt(it.qty)) {
+            throw new DomainError('INVALID_ARGUMENT', 'each item needs a positive integer pid and qty');
+        }
+        const total = (merged.get(it.pid) || 0) + it.qty;
+        if (total > INT32_MAX) throw new DomainError('INVALID_ARGUMENT', 'qty is too large');
+        merged.set(it.pid, total);
+    }
+    return [...merged].map(([pid, qty]) => ({ pid, qty }));
+}
+
+module.exports = { validateNewProduct, buildChanges, normalizeStockItems };
