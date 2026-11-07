@@ -217,7 +217,8 @@ services:
       retries: 20
       start_period: 5s
     restart: unless-stopped
-  # ---------- Order Service (Bounded Context 3) ----------
+    # ---------- Order Service (Bounded Context 3) ----------
+    # ---------- Order Service (Bounded Context 3) ----------
   order-service:
     build:
       context: .
@@ -227,6 +228,7 @@ services:
       DATABASE_URL: postgres://${ORDER_DB_USER}:${ORDER_DB_PASSWORD}@order-db:5432/order_db
       CUSTOMER_GRPC_URL: customer-service:50052
       PRODUCT_GRPC_URL: product-service:50053
+      KAFKA_BROKERS: kafka:9092
       GRPC_PORT: 50054
       HEALTH_PORT: 8080
     depends_on:
@@ -236,6 +238,8 @@ services:
         condition: service_healthy
       product-service:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1" ]
       interval: 3s
@@ -243,6 +247,31 @@ services:
       retries: 20
       start_period: 5s
     restart: unless-stopped
+    # ---------- Shipment Service (Bounded Context 5) ----------
+  shipment-service:
+    build:
+      context: .
+      dockerfile: services/shipment-service/Dockerfile
+    container_name: shipment-service
+    environment:
+      MONGO_URL: mongodb://${SHIPMENT_DB_USER}:${SHIPMENT_DB_PASSWORD}@shipment-db:27017/shipment_db?authSource=admin
+      KAFKA_BROKERS: kafka:9092
+      GRPC_PORT: 50055
+      HEALTH_PORT: 8080
+    depends_on:
+      shipment-db:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1" ]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+    # ---------- API Gateway ----------
+    # ---------- API Gateway ----------
     # ---------- API Gateway ----------
   api-gateway:
     build:
@@ -255,9 +284,17 @@ services:
       CUSTOMER_GRPC_URL: customer-service:50052
       PRODUCT_GRPC_URL: product-service:50053
       ORDER_GRPC_URL: order-service:50054
+      SHIPMENT_GRPC_URL: shipment-service:50055
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RATE_LIMIT_GLOBAL_MAX: ${RATE_LIMIT_GLOBAL_MAX:-300}
+      RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-30}
     ports:
       - "8080:8080"
     depends_on:
+      redis:
+        condition: service_healthy
       auth-service:
         condition: service_healthy
       customer-service:
@@ -265,6 +302,8 @@ services:
       product-service:
         condition: service_healthy
       order-service:
+        condition: service_healthy
+      shipment-service:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health || exit 1" ]

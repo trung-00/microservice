@@ -1,6 +1,21 @@
 const bcrypt = require('bcryptjs');
 const pool = require('./db');
 
+// Đăng ký công khai chỉ tạo CUSTOMER, nên ADMIN và SHIPMENT_STAFF phải được seed sẵn.
+// Kiểm tra tồn tại trước khi băm mật khẩu: tài khoản đã có thì không làm gì (cũng không tốn số uid).
+async function seedUser(username, password, roleName) {
+  const exists = await pool.query('SELECT 1 FROM users WHERE username = $1', [username]);
+  if (exists.rowCount) return;
+
+  const hash = await bcrypt.hash(password, 10);
+  await pool.query(
+    `INSERT INTO users(username, password, roleid)
+     VALUES ($1, $2, (SELECT roleid FROM role WHERE rolename = $3))
+     ON CONFLICT (username) DO NOTHING`,
+    [username, hash, roleName]
+  );
+}
+
 async function migrate() {
   // Bảng tên "users" vì "user" là từ khóa dành riêng của PostgreSQL.
   // email, phone: bổ sung so với ERD vì API-AUTH-01 yêu cầu.
@@ -21,15 +36,9 @@ async function migrate() {
     ON CONFLICT (rolename) DO NOTHING;
   `);
 
-  // Đăng ký công khai chỉ tạo CUSTOMER, nên ADMIN phải được seed sẵn.
-  const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
-  await pool.query(
-    `INSERT INTO users(username, password, roleid)
-     SELECT 'admin', $1, (SELECT roleid FROM role WHERE rolename = 'ADMIN')
-      WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin')
-     ON CONFLICT (username) DO NOTHING`,
-    [hash]
-  );
+  await seedUser('admin', process.env.ADMIN_PASSWORD, 'ADMIN');
+  // Tài khoản nhân viên giao hàng (UC11). Mật khẩu: STAFF_PASSWORD nếu có, không thì dùng ADMIN_PASSWORD.
+  await seedUser('staff', process.env.STAFF_PASSWORD || process.env.ADMIN_PASSWORD, 'SHIPMENT_STAFF');
 }
 
 module.exports = { migrate };

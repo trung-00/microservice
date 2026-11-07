@@ -16,6 +16,7 @@ const authClient = new (loadPackage('auth.proto', 'auth').AuthService)(config.au
 const customerClient = new (loadPackage('customer.proto', 'customer').CustomerService)(config.customerUrl, credentials);
 const productClient = new (loadPackage('product.proto', 'product').ProductService)(config.productUrl, credentials);
 const orderClient = new (loadPackage('order.proto', 'order').OrderService)(config.orderUrl, credentials);
+const shipmentClient = new (loadPackage('shipment.proto', 'shipment').ShipmentService)(config.shipmentUrl, credentials);
 
 // Gọi một hàm gRPC dưới dạng Promise: có deadline, và gắn danh tính người dùng vào metadata.
 // timeoutMs: thời gian chờ tối đa, mặc định lấy từ cấu hình.
@@ -31,4 +32,4 @@ function call(client, method, request, user, timeoutMs = config.grpcTimeoutMs) {
     });
 }
 
-module.exports = { authClient, customerClient, productClient, orderClient, call };
+module.exports = { authClient, customerClient, productClient, orderClient, shipmentClient, call };

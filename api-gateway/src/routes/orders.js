@@ -28,8 +28,9 @@ const presentOrder = (o) => ({
     ...presentSummary(o),
     items: o.items.map((i) => ({ pid: i.pid, qty: i.qty, unit_price: i.unitPrice })),
 });
+const presentShipment = (s) => ({ shipid: s.shipid, oid: s.oid, status: s.status });
 
-module.exports = function orderRoutes({ call, orderClient, authenticate }) {
+module.exports = function orderRoutes({ call, orderClient, shipmentClient, authenticate }) {
     const router = express.Router();
     router.use(authenticate); // mọi route đơn hàng đều cần JWT (TC-ORD-02)
 
@@ -51,6 +52,13 @@ module.exports = function orderRoutes({ call, orderClient, authenticate }) {
     router.get('/:oid', asyncHandler(async (req, res) => {
         const out = await call(orderClient, 'GetOrder', { oid: parseId(req.params.oid, 'oid') }, req.user);
         res.status(200).json(presentOrder(out));
+    }));
+
+    // Trạng thái giao hàng của một đơn (CR06). Khách chỉ biết oid, chưa biết shipid.
+    // Vận đơn được tạo bất đồng bộ nên vài giây đầu sau khi đặt hàng có thể trả 404.
+    router.get('/:oid/shipment', asyncHandler(async (req, res) => {
+        const out = await call(shipmentClient, 'GetShipmentByOrder', { oid: parseId(req.params.oid, 'oid') }, req.user);
+        res.status(200).json(presentShipment(out));
     }));
 
     return router;
